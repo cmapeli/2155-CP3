@@ -3,14 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import List, Union
+from tqdm import tqdm # Import tqdm for sampling loop
 
 class DenoisingMLP(nn.Module):
     """
     Denoising Network (MLP) for Structured Data Diffusion Model.
     This acts as the epsilon-predictor. It predicts the noise added to the data.
-    
-    Input: noisy_data, conditioning_data (observed_x + mask), time_step
-    Output: predicted_noise
     """
     def __init__(self, input_dim: int, hidden_dims: List[int], num_timesteps: int):
         super(DenoisingMLP, self).__init__()
@@ -18,34 +16,27 @@ class DenoisingMLP(nn.Module):
         # Time step embedding (used to condition the network on 't')
         self.time_embedding = nn.Embedding(num_timesteps, hidden_dims[0])
         
-        # CRITICAL FIX: The total input size is 3 * input_dim (x_t + observed_x + mask)
-        input_layer_dim = input_dim * 3 
+        # The data input size is: noisy_data (D) + observed_x (D) + mask (D) = 3 * D
+        data_condition_dim = input_dim * 3 
+        
+        # The first layer input is Data + Time Embedding size
+        first_layer_input_dim = data_condition_dim + hidden_dims[0] 
 
         layers = []
-        prev_dim = input_layer_dim
+        prev_dim = first_layer_input_dim
         
-        # Build MLP layers
-        for i, hidden_dim in enumerate(hidden_dims):
-            # Integrate the time embedding into the first layer's dimension
-            current_in_dim = prev_dim
-            if i == 0:
-                # The first layer must also account for the size of the time embedding
-                current_in_dim = input_layer_dim + hidden_dims[0] # Data (111) + Time Embed (512)
-            
-            # Linear layer
-            layers.append(nn.Linear(current_in_dim, hidden_dim))
-            
+        # Build MLP layers (starting from the second layer's output size)
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, hidden_dim))
             layers.append(nn.BatchNorm1d(hidden_dim))
-            layers.append(nn.SiLU()) # SiLU (Swish) is common in modern diffusion models
-            
+            layers.append(nn.SiLU()) 
             prev_dim = hidden_dim
 
         # Final output layer predicts noise (same dimension as input_dim)
         layers.append(nn.Linear(hidden_dims[-1], input_dim))
         
-        # The sequential MLP now handles layers 1 to L-1
-        self.data_layers = nn.Sequential(*layers[:-1])
-        self.output_layer = layers[-1]
+        # We put all layers into one sequential container for simpler structure
+        self.mlp = nn.Sequential(*layers)
         
     def forward(self, x_t: torch.Tensor, condition: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """
@@ -54,19 +45,18 @@ class DenoisingMLP(nn.Module):
             condition: Observed features concatenated with mask (B, D*2)
             t: Time step index (B,)
         """
-        # Time embedding (B, hidden_dims[0])
+        # 1. Time embedding (B, hidden_dims[0])
         t_emb = self.time_embedding(t)
         
-        # Concatenate noisy data and condition (B, 3*D)
+        # 2. Concatenate noisy data and condition (B, 3*D)
         combined_data = torch.cat([x_t, condition], dim=1)
         
-        # CRITICAL FIX: Concatenate the time embedding with the combined data input
+        # 3. Concatenate the time embedding with the combined data input
+        # This forms the input to the FIRST linear layer.
         h = torch.cat([combined_data, t_emb], dim=1)
 
-        # Pass through denoising layers
-        h = self.data_layers(h)
-        
-        return self.output_layer(h)
+        # 4. Pass through the entire sequential MLP
+        return self.mlp(h)
 
 class ConditionalDDPM(nn.Module):
     """
@@ -84,7 +74,6 @@ class ConditionalDDPM(nn.Module):
         self.denoise_model = DenoisingMLP(input_dim, hidden_dims, num_timesteps)
         
         # 2. Diffusion Schedule (Linear is simple and common)
-        # CRITICAL FIX: Explicitly move the schedule tensors to the determined device
         self.betas = self._build_linear_schedule(num_timesteps).to(self.device)
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
