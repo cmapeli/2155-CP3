@@ -23,7 +23,7 @@ class DenoisingMLP(nn.Module):
         first_layer_input_dim = data_condition_dim + hidden_dims[0] # 111 + 512 = 623
 
         # --- DIAGNOSTIC PRINT ---
-        print("START!!!!!!!!!!!!")
+        
         print(f"\n[DenoisingMLP Init Debug]")
         print(f"Input Dim (D): {input_dim}")
         print(f"Time Emb Dim: {hidden_dims[0]}")
@@ -94,6 +94,7 @@ class ConditionalDDPM(nn.Module):
         self.denoise_model = DenoisingMLP(input_dim, hidden_dims, num_timesteps)
         
         # --- DIAGNOSTIC PRINT ---
+        
         print(f"First Linear Layer Weight Shape: {self.denoise_model.fc1.weight.shape}")
         print("-" * 30)
         # ------------------------
