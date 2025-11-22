@@ -12,7 +12,6 @@ class DenoisingMLP(nn.Module):
     def __init__(self, input_dim: int, hidden_dims: List[int], num_timesteps: int):
         super(DenoisingMLP, self).__init__()
         
-        
         # Time step embedding (B, hidden_dims[0])
         self.time_embedding = nn.Embedding(num_timesteps, hidden_dims[0])
         
@@ -23,7 +22,6 @@ class DenoisingMLP(nn.Module):
         first_layer_input_dim = data_condition_dim + hidden_dims[0] # 111 + 512 = 623
 
         # --- DIAGNOSTIC PRINT ---
-        
         print(f"\n[DenoisingMLP Init Debug]")
         print(f"Input Dim (D): {input_dim}")
         print(f"Time Emb Dim: {hidden_dims[0]}")
@@ -94,7 +92,6 @@ class ConditionalDDPM(nn.Module):
         self.denoise_model = DenoisingMLP(input_dim, hidden_dims, num_timesteps)
         
         # --- DIAGNOSTIC PRINT ---
-        
         print(f"First Linear Layer Weight Shape: {self.denoise_model.fc1.weight.shape}")
         print("-" * 30)
         # ------------------------
@@ -167,14 +164,36 @@ class ConditionalDDPM(nn.Module):
         
         all_generated_samples = []
 
+        # We must generate n_samples sequentially for accurate statistics
         for _ in range(n_samples):
             x_t = torch.randn_like(x_start) 
 
-            for t_idx in tqdm(reversed(range(self.num_timesteps)), desc="DDPM Sampling", total=self.num_timesteps):
+            for t_idx in reversed(range(self.num_timesteps)):
                 t = torch.full((batch_size,), t_idx, device=device, dtype=torch.long)
                 x_t_minus_1 = self.reverse_sampling_step(x_t, condition, t)
                 x_t = x_t_minus_1 * (1.0 - mask_float) + x_observed 
 
             all_generated_samples.append(x_t.cpu().numpy())
 
-        return np.stack(all_generated_samples, axis=1)
+        # Shape: (n_samples, batch_size, n_features) -> transpose to (batch_size, n_samples, n_features)
+        return np.transpose(np.stack(all_generated_samples, axis=0), (1, 0, 2))
+    
+    # --- VAE Compatibility Method (CRITICAL FIX) ---
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Stub function to satisfy the legacy VAE generate_samples wrapper.
+        Since diffusion sampling is stochastic, we generate a single sample using the DDPM
+        and return it as 'reconstruction' along with dummy tensors for mu and logvar.
+        """
+        # Generate one stochastic sample for the current batch
+        # Output shape: (batch_size, 1, n_features)
+        imputed_array = self.impute_samples(x, mask, n_samples=1)
+        
+        # Convert back to torch tensor and extract the single sample (batch_size, n_features)
+        reconstruction = torch.from_numpy(imputed_array[:, 0, :]).float().to(x.device)
+        
+        # Return reconstruction and dummy mu/logvar to match VAE signature
+        mu_dummy = torch.zeros_like(reconstruction)
+        logvar_dummy = torch.zeros_like(reconstruction)
+        
+        return reconstruction, mu_dummy, logvar_dummy
