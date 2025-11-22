@@ -75,7 +75,11 @@ class DenoisingMLP(nn.Module):
         h = self.hidden_layers(h)
         
         # 6. Output noise prediction
-        return self.output_layer(h)
+        predicted_noise = self.output_layer(h)
+
+        # CRITICAL FIX: Clamp the predicted noise to prevent numerical instability (NaNs)
+        # This is a common requirement in DDPM implementations.
+        return torch.clamp(predicted_noise, min=-10.0, max=10.0)
 
 class ConditionalDDPM(nn.Module):
     """
