@@ -12,6 +12,7 @@ class DenoisingMLP(nn.Module):
     def __init__(self, input_dim: int, hidden_dims: List[int], num_timesteps: int):
         super(DenoisingMLP, self).__init__()
         
+        
         # Time step embedding (B, hidden_dims[0])
         self.time_embedding = nn.Embedding(num_timesteps, hidden_dims[0])
         
@@ -22,6 +23,7 @@ class DenoisingMLP(nn.Module):
         first_layer_input_dim = data_condition_dim + hidden_dims[0] # 111 + 512 = 623
 
         # --- DIAGNOSTIC PRINT ---
+        print("START!!!!!!!!!!!!")
         print(f"\n[DenoisingMLP Init Debug]")
         print(f"Input Dim (D): {input_dim}")
         print(f"Time Emb Dim: {hidden_dims[0]}")
