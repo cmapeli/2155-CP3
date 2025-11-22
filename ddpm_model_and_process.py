@@ -22,10 +22,19 @@ class DenoisingMLP(nn.Module):
         # The first layer input is Data + Time Embedding size
         first_layer_input_dim = data_condition_dim + hidden_dims[0] 
 
+        # --- DIAGNOSTIC PRINT ---
+        print(f"\n[DenoisingMLP Init Debug]")
+        print(f"Input Dim (D): {input_dim}")
+        print(f"Time Emb Dim: {hidden_dims[0]}")
+        print(f"Data+Condition Dim (3*D): {data_condition_dim}")
+        print(f"First Layer Input Dim (Should be 623): {first_layer_input_dim}")
+        print("-" * 30)
+        # ------------------------
+
         layers = []
         prev_dim = first_layer_input_dim
         
-        # Build MLP layers (starting from the second layer's output size)
+        # Build MLP layers 
         for hidden_dim in hidden_dims:
             layers.append(nn.Linear(prev_dim, hidden_dim))
             layers.append(nn.BatchNorm1d(hidden_dim))
